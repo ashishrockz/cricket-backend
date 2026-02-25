@@ -34,12 +34,21 @@ const app = express();
 // SECURITY MIDDLEWARE
 // ============================================
 app.use(helmet());
-const corsOrigins = process.env.CORS_ORIGIN
+
+const productionOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
-  : '*';
+  : [];
 
 app.use(cors({
-  origin: corsOrigins,
+  origin: (origin, callback) => {
+    // Allow no-origin requests (Postman, mobile apps, curl)
+    if (!origin) return callback(null, true);
+    // Allow any localhost port automatically
+    if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+    // Allow production origins from env
+    if (productionOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -47,8 +56,8 @@ app.use(cors({
 app.use(mongoSanitize());
 app.use(hpp());
 
-// Rate limiting — skip entirely in development
-if (process.env.NODE_ENV !== 'development') {
+// Rate limiting — only active in production
+if (process.env.NODE_ENV === 'production') {
   const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
     max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
@@ -90,13 +99,11 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 
 // Logging
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-} else {
-  app.use(morgan('combined', {
-    stream: { write: (message) => logger.info(message.trim()) }
-  }));
-}
+app.use(
+  process.env.NODE_ENV === 'production'
+    ? morgan('combined', { stream: { write: (msg) => logger.info(msg.trim()) } })
+    : morgan('dev')
+);
 
 // ============================================
 // HEALTH CHECK

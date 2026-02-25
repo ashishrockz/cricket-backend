@@ -5,10 +5,19 @@ const { SOCKET_EVENTS } = require('../config/constants');
 
 let io;
 
+const productionOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
+  : [];
+
 const initializeSocket = (server) => {
   io = new Server(server, {
     cors: {
-      origin: process.env.CORS_ORIGIN || '*',
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+        if (productionOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      },
       methods: ['GET', 'POST'],
       credentials: true
     },
