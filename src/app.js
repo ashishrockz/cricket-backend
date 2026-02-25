@@ -34,8 +34,12 @@ const app = express();
 // SECURITY MIDDLEWARE
 // ============================================
 app.use(helmet());
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
+  : '*';
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: corsOrigins,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -43,40 +47,40 @@ app.use(cors({
 app.use(mongoSanitize());
 app.use(hpp());
 
-// General rate limit
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  message: {
-    success: false,
-    message: 'Too many requests from this IP, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false
-});
-app.use('/api/', limiter);
+// Rate limiting — skip entirely in development
+if (process.env.NODE_ENV !== 'development') {
+  const limiter = rateLimit({
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+    message: {
+      success: false,
+      message: 'Too many requests from this IP, please try again later.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+  });
+  app.use('/api/', limiter);
 
-// Stricter rate limit for auth & OTP routes
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  message: {
-    success: false,
-    message: 'Too many authentication attempts, please try again after 15 minutes.'
-  }
-});
-app.use('/api/v1/auth/', authLimiter);
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    message: {
+      success: false,
+      message: 'Too many authentication attempts, please try again after 15 minutes.'
+    }
+  });
+  app.use('/api/v1/auth/', authLimiter);
 
-// Extra strict for OTP requests (prevent abuse)
-const otpLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: {
-    success: false,
-    message: 'Too many OTP requests, please try again after 15 minutes.'
-  }
-});
-app.use('/api/v1/auth/otp/', otpLimiter);
+  const otpLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: {
+      success: false,
+      message: 'Too many OTP requests, please try again after 15 minutes.'
+    }
+  });
+  app.use('/api/v1/auth/otp/', otpLimiter);
+}
 
 // ============================================
 // BODY PARSING & UTILITY MIDDLEWARE
