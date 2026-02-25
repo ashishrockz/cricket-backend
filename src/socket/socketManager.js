@@ -101,6 +101,35 @@ const initializeSocket = (server) => {
     });
 
     // ============================================
+    // RECORD BALL VIA SOCKET
+    // Any authenticated room member can emit this event to record a delivery
+    // without going through the REST API. The same processBall service is used.
+    // Client emits: { matchId, outcome, runs, extraRuns, strikerId, nonStrikerId, bowlerId,
+    //                 isWicket, dismissalType, dismissedPlayerId, fielderId, commentary }
+    // Server acks:  { success, data } or { success: false, error }
+    // ============================================
+    socket.on(SOCKET_EVENTS.RECORD_BALL, async (data, ack) => {
+      if (!socket.userData.isAuthenticated) {
+        const err = { success: false, error: 'Authentication required to record a ball' };
+        if (typeof ack === 'function') return ack(err);
+        return socket.emit(SOCKET_EVENTS.ERROR, err);
+      }
+
+      try {
+        // Lazy-require to avoid circular dependency at module load time
+        const { processBall } = require('../services/scoringService');
+        const result = await processBall(data, socket.userData.userId);
+        if (typeof ack === 'function') ack(result);
+        // Ball_update broadcast is already done inside processBall
+      } catch (err) {
+        logger.error(`RECORD_BALL socket error: ${err.message}`);
+        const errPayload = { success: false, error: 'Internal error recording ball' };
+        if (typeof ack === 'function') ack(errPayload);
+        else socket.emit(SOCKET_EVENTS.ERROR, errPayload);
+      }
+    });
+
+    // ============================================
     // IN-MATCH CHAT
     // ============================================
     socket.on(SOCKET_EVENTS.MATCH_CHAT, (data) => {

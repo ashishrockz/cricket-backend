@@ -138,6 +138,8 @@ module.exports = {
     MATCH_COMPLETE: 'match_complete',
     SCORE_UPDATE: 'score_update',
     UNDO_BALL: 'undo_ball',
+    STRIKE_ROTATE: 'strike_rotate',
+    RECORD_BALL: 'record_ball',
 
     // Live View Events
     REQUEST_LIVE_SCORE: 'request_live_score',
