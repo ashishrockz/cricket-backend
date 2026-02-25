@@ -70,7 +70,7 @@ const createRoom = asyncHandler(async (req, res, next) => {
     matchDate: matchDate || new Date(),
     maxPlayersPerTeam: maxPlayersPerTeam || 11,
     isPrivate: isPrivate || false,
-    inviteLink: `${process.env.CORS_ORIGIN || 'http://localhost:3000'}/join/${roomCode}`
+    inviteLink: `${process.env.APP_URL || 'http://localhost:3000'}/join/${roomCode}`
   });
 
   await room.populate('members.user', 'username fullName avatar');

@@ -19,7 +19,7 @@ const authenticate = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id).select('-stats');
 
     if (!user) {
       return next(ApiError.unauthorized('User not found. Token is invalid.'));
@@ -74,7 +74,7 @@ const optionalAuth = async (req, res, next) => {
     }
     if (token) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.id);
+      req.user = await User.findById(decoded.id).select('-stats');
     }
   } catch (e) {
     // Token invalid or expired, continue without user

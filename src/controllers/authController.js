@@ -114,9 +114,11 @@ const login = asyncHandler(async (req, res, next) => {
 const requestOTP = asyncHandler(async (req, res, next) => {
   const { email, purpose = 'login' } = req.body;
 
+  // Single query for user — used both for auth check and personalized email
+  const user = await User.findOne({ email: email.toLowerCase() }).select('fullName username isActive isBanned');
+
   // Check if user exists for login/password_reset purposes
   if (purpose === 'login' || purpose === 'password_reset') {
-    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       // Return a generic message to prevent email enumeration
       return ApiResponse.success(res, null,
@@ -153,9 +155,6 @@ const requestOTP = asyncHandler(async (req, res, next) => {
     ipAddress,
     userAgent
   );
-
-  // Look up user name for personalized email
-  const user = await User.findOne({ email: email.toLowerCase() }).select('fullName username');
 
   await sendOTPEmail({
     email: email.toLowerCase(),

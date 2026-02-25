@@ -4,6 +4,10 @@ const User = require('../models/User');
 const logger = require('../config/logger');
 const { sendSubscriptionEmail } = require('./emailService');
 
+// Simple in-memory cache for plan features (avoids a DB hit on every request)
+const planFeaturesCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Seed the default subscription plans if they don't exist
  */
@@ -232,11 +236,20 @@ const getUserSubscription = async (userId) => {
 };
 
 /**
- * Get plan features for a given planSlug
+ * Get plan features for a given planSlug (cached for 5 minutes)
  */
 const getPlanFeatures = async (planSlug) => {
-  const plan = await SubscriptionPlan.findOne({ slug: planSlug });
-  return plan ? plan.features : null;
+  const cached = planFeaturesCache.get(planSlug);
+  if (cached && Date.now() < cached.expiresAt) return cached.features;
+
+  const plan = await SubscriptionPlan.findOne({ slug: planSlug }).lean();
+  const features = plan ? plan.features : null;
+
+  if (features) {
+    planFeaturesCache.set(planSlug, { features, expiresAt: Date.now() + CACHE_TTL_MS });
+  }
+
+  return features;
 };
 
 /**
