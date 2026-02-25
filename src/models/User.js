@@ -139,7 +139,8 @@ const userSchema = new mongoose.Schema({
   preferOTPLogin: {
     type: Boolean,
     default: false
-  }
+  },
+  fcmToken: { type: String, default: null, select: false }
 }, {
   timestamps: true,
   toJSON: { virtuals: true },

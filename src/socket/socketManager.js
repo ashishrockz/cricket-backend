@@ -55,6 +55,15 @@ const initializeSocket = (server) => {
     logger.debug(`Socket connected: ${socket.id} | Authenticated: ${socket.userData.isAuthenticated}`);
 
     // ============================================
+    // SUBSCRIBE TO USER'S PERSONAL NOTIFICATION ROOM
+    // Authenticated users join 'user:<userId>' on connect for push-style notifications
+    // ============================================
+    if (socket.userData.isAuthenticated) {
+      socket.join(`user:${socket.userData.userId}`);
+      logger.debug(`Socket ${socket.id} auto-joined user:${socket.userData.userId}`);
+    }
+
+    // ============================================
     // JOIN ROOM (for room members and players)
     // ============================================
     socket.on(SOCKET_EVENTS.JOIN_ROOM, (data) => {
@@ -124,6 +133,79 @@ const initializeSocket = (server) => {
       } catch (err) {
         logger.error(`RECORD_BALL socket error: ${err.message}`);
         const errPayload = { success: false, error: 'Internal error recording ball' };
+        if (typeof ack === 'function') ack(errPayload);
+        else socket.emit(SOCKET_EVENTS.ERROR, errPayload);
+      }
+    });
+
+    // ============================================
+    // SELECT NEW BATSMAN AFTER WICKET
+    // Client emits: { matchId, incomingBatsmanId, position }
+    //   position: 'striker' | 'non_striker'
+    // Server broadcasts SELECT_BATSMAN to the room so all clients update UI
+    // ============================================
+    socket.on(SOCKET_EVENTS.SELECT_BATSMAN, async (data, ack) => {
+      if (!socket.userData.isAuthenticated) {
+        const err = { success: false, error: 'Authentication required' };
+        if (typeof ack === 'function') return ack(err);
+        return socket.emit(SOCKET_EVENTS.ERROR, err);
+      }
+
+      try {
+        const { matchId, incomingBatsmanId, position } = data;
+        if (!matchId || !incomingBatsmanId || !position) {
+          const err = { success: false, error: 'matchId, incomingBatsmanId and position are required' };
+          if (typeof ack === 'function') return ack(err);
+          return socket.emit(SOCKET_EVENTS.ERROR, err);
+        }
+
+        const Match = require('../models/Match');
+        const Room  = require('../models/Room');
+        const match = await Match.findById(matchId);
+        if (!match) {
+          const err = { success: false, error: 'Match not found' };
+          if (typeof ack === 'function') return ack(err);
+          return;
+        }
+
+        const room = await Room.findById(match.room);
+        if (!room || !room.isMember(socket.userData.userId)) {
+          const err = { success: false, error: 'Only room members can select batsman' };
+          if (typeof ack === 'function') return ack(err);
+          return;
+        }
+
+        const innings = match.innings[match.currentInnings - 1];
+        if (!innings) {
+          const err = { success: false, error: 'No active innings' };
+          if (typeof ack === 'function') return ack(err);
+          return;
+        }
+
+        // Update currentBatsmen in the innings
+        if (position === 'striker') {
+          innings.currentBatsmen.striker = incomingBatsmanId;
+        } else if (position === 'non_striker') {
+          innings.currentBatsmen.nonStriker = incomingBatsmanId;
+        }
+
+        innings.markModified('currentBatsmen');
+        await match.save();
+
+        const payload = { success: true, matchId, incomingBatsmanId, position };
+        if (typeof ack === 'function') ack(payload);
+
+        // Broadcast to all room members
+        io.to(`room:${room._id}`).emit(SOCKET_EVENTS.SELECT_BATSMAN, {
+          matchId,
+          incomingBatsmanId,
+          position,
+          currentBatsmen: innings.currentBatsmen,
+          timestamp: new Date()
+        });
+      } catch (err) {
+        logger.error(`SELECT_BATSMAN socket error: ${err.message}`);
+        const errPayload = { success: false, error: 'Internal error selecting batsman' };
         if (typeof ack === 'function') ack(errPayload);
         else socket.emit(SOCKET_EVENTS.ERROR, errPayload);
       }

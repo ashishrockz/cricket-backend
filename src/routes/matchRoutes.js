@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getMatchDetails, recordToss, startMatch, endInnings, getLiveScore, getMatchTimeline } = require('../controllers/matchController');
+const { getMatchDetails, recordToss, startMatch, endInnings, getLiveScore, getMatchTimeline, searchMatches } = require('../controllers/matchController');
 const { authenticate, optionalAuth } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 const { matchValidators } = require('../validators');
@@ -145,5 +145,8 @@ router.post('/:id/start', authenticate, validate(matchValidators.matchId), start
  *         description: Innings ended
  */
 router.post('/:id/end-innings', authenticate, validate(matchValidators.matchId), endInnings);
+
+// Public match discovery — no auth required for spectators
+router.get('/', optionalAuth, searchMatches);
 
 module.exports = router;

@@ -140,6 +140,7 @@ module.exports = {
     UNDO_BALL: 'undo_ball',
     STRIKE_ROTATE: 'strike_rotate',
     RECORD_BALL: 'record_ball',
+    SELECT_BATSMAN: 'select_batsman',
 
     // Live View Events
     REQUEST_LIVE_SCORE: 'request_live_score',

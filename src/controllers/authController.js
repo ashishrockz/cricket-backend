@@ -339,6 +339,18 @@ const changePassword = asyncHandler(async (req, res, next) => {
 // @access  Private
 // ─────────────────────────────────────────────────────────────────────────────
 const logout = asyncHandler(async (req, res) => {
+  // Blacklist the current access token so it can't be reused before natural expiry
+  const token = req.headers.authorization?.split(' ')[1];
+  if (token) {
+    try {
+      const jwt            = require('jsonwebtoken');
+      const TokenBlacklist = require('../models/TokenBlacklist');
+      const decoded        = jwt.decode(token);
+      if (decoded?.exp) {
+        await TokenBlacklist.create({ token, userId: req.user._id, expiresAt: new Date(decoded.exp * 1000) });
+      }
+    } catch { /* non-critical — proceed */ }
+  }
   req.user.refreshToken = null;
   await req.user.save();
   ApiResponse.success(res, null, 'Logged out successfully');

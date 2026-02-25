@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getUserById, updateProfile, searchUsers, getMatchHistory, getUserStats } = require('../controllers/userController');
+const { getUserById, updateProfile, searchUsers, getMatchHistory, getUserStats, updateFcmToken } = require('../controllers/userController');
 const { authenticate } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 const { userValidators } = require('../validators');
@@ -98,6 +98,7 @@ router.get('/match-history', authenticate, getMatchHistory);
  *         description: Profile updated
  */
 router.put('/profile', authenticate, validate(userValidators.updateProfile), updateProfile);
+router.patch('/fcm-token', authenticate, updateFcmToken);
 
 /**
  * @swagger

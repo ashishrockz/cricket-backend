@@ -27,6 +27,7 @@ const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const enterpriseRoutes = require('./routes/enterpriseRoutes');
 const adRoutes = require('./routes/adRoutes');
 const toolRoutes = require('./routes/toolRoutes');
+const statsRoutes = require('./routes/statsRoutes');
 
 const app = express();
 
@@ -155,6 +156,9 @@ app.use('/api/v1/ads', adRoutes);
 
 // Cricket tools
 app.use('/api/v1/tools', toolRoutes);
+
+// Stats & Leaderboard
+app.use('/api/v1/stats', statsRoutes);
 
 // Social & Notifications
 app.use('/api/v1/announcements', announcementRoutes);

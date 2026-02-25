@@ -1,5 +1,9 @@
 const router = require('express').Router();
-const { createRoom, joinRoom, leaveRoom, getRoomDetails, getRoomByCode, addPlayerToTeam, removePlayerFromTeam, getMyRooms } = require('../controllers/roomController');
+const {
+  createRoom, joinRoom, leaveRoom, getRoomDetails, getRoomByCode,
+  addPlayerToTeam, removePlayerFromTeam, getMyRooms,
+  inviteToRoom, getMyInvitations, acceptInvitation, declineInvitation
+} = require('../controllers/roomController');
 const { authenticate } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 const { roomValidators } = require('../validators');
@@ -90,6 +94,11 @@ router.post('/', authenticate, validate(roomValidators.create), createRoom);
  *         description: User's rooms
  */
 router.get('/my-rooms', authenticate, getMyRooms);
+
+// ---- Invitations (static paths must be before /:id) ----
+router.get('/invitations',                    authenticate, getMyInvitations);
+router.post('/invitations/:inviteId/accept',  authenticate, acceptInvitation);
+router.post('/invitations/:inviteId/decline', authenticate, declineInvitation);
 
 /**
  * @swagger
@@ -248,5 +257,8 @@ router.post('/:id/players', authenticate, validate(roomValidators.addPlayer), ad
  *         description: Player removed
  */
 router.delete('/:id/players/:playerId', authenticate, removePlayerFromTeam);
+
+// ---- Invite to specific room (dynamic :id, must be after static /invitations routes) ----
+router.post('/:id/invite', authenticate, inviteToRoom);
 
 module.exports = router;

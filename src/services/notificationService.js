@@ -1,6 +1,8 @@
 const logger = require('../config/logger');
 const { getIO } = require('../socket/socketManager');
 const { SOCKET_EVENTS } = require('../config/constants');
+const { sendPush } = require('./fcmService');
+const User = require('../models/User');
 
 /**
  * Notification types used across the app
@@ -22,13 +24,15 @@ const NOTIFICATION_TYPES = {
 const pendingNotifications = [];
 
 /**
- * Send a real-time notification to a specific user via Socket.IO
+ * Send a real-time notification to a specific user via Socket.IO + FCM push
  *
  * @param {string} userId    - Target user's ObjectId
  * @param {string} type      - Notification type constant
  * @param {object} payload   - Notification data
+ * @param {object} [push]    - Optional { title, body } for FCM push; skipped if omitted
  */
-const notifyUser = (userId, type, payload) => {
+const notifyUser = async (userId, type, payload, push = null) => {
+  // 1. Socket.IO — real-time (best effort)
   try {
     const io = getIO();
     io.to(`user:${userId}`).emit('notification', {
@@ -38,9 +42,20 @@ const notifyUser = (userId, type, payload) => {
     });
     logger.debug(`Notification sent to user:${userId} — ${type}`);
   } catch (error) {
-    // Socket may not be connected; queue for later delivery
     pendingNotifications.push({ userId, type, payload, createdAt: new Date() });
     logger.debug(`Notification queued for user:${userId} — ${type}`);
+  }
+
+  // 2. FCM Push — for background / offline devices
+  if (push?.title) {
+    try {
+      const user = await User.findById(userId).select('+fcmToken').lean();
+      if (user?.fcmToken) {
+        await sendPush(user.fcmToken, push.title, push.body || '', { type, ...payload });
+      }
+    } catch (err) {
+      logger.warn(`FCM push failed for user:${userId} — ${err.message}`);
+    }
   }
 };
 
@@ -48,26 +63,27 @@ const notifyUser = (userId, type, payload) => {
  * Notify a registered player they've been added to a match
  */
 const notifyPlayerAddedToMatch = (userId, matchInfo) => {
-  notifyUser(userId, NOTIFICATION_TYPES.ADDED_TO_MATCH, {
-    message: `You have been added to a match: ${matchInfo.teamAName} vs ${matchInfo.teamBName}`,
-    roomCode: matchInfo.roomCode,
-    matchId: matchInfo.matchId,
-    team: matchInfo.team,
-    venue: matchInfo.venue,
-    matchDate: matchInfo.matchDate
-  });
+  const msg = `You have been added to a match: ${matchInfo.teamAName} vs ${matchInfo.teamBName}`;
+  notifyUser(
+    userId,
+    NOTIFICATION_TYPES.ADDED_TO_MATCH,
+    { message: msg, roomCode: matchInfo.roomCode, matchId: matchInfo.matchId, team: matchInfo.team, venue: matchInfo.venue, matchDate: matchInfo.matchDate },
+    { title: 'Added to Match', body: msg }
+  );
 };
 
 /**
  * Notify all registered players in a match that scoring has started
  */
 const notifyMatchStarting = (playerUserIds, matchInfo) => {
+  const msg = `Match is starting: ${matchInfo.teamAName} vs ${matchInfo.teamBName}`;
   playerUserIds.forEach((userId) => {
-    notifyUser(userId, NOTIFICATION_TYPES.MATCH_STARTING, {
-      message: `Match is starting: ${matchInfo.teamAName} vs ${matchInfo.teamBName}`,
-      matchId: matchInfo.matchId,
-      roomCode: matchInfo.roomCode
-    });
+    notifyUser(
+      userId,
+      NOTIFICATION_TYPES.MATCH_STARTING,
+      { message: msg, matchId: matchInfo.matchId, roomCode: matchInfo.roomCode },
+      { title: 'Match Starting!', body: msg }
+    );
   });
 };
 
@@ -76,10 +92,12 @@ const notifyMatchStarting = (playerUserIds, matchInfo) => {
  */
 const notifyMatchCompleted = (playerUserIds, matchInfo) => {
   playerUserIds.forEach((userId) => {
-    notifyUser(userId, NOTIFICATION_TYPES.MATCH_COMPLETED, {
-      message: matchInfo.resultSummary,
-      matchId: matchInfo.matchId
-    });
+    notifyUser(
+      userId,
+      NOTIFICATION_TYPES.MATCH_COMPLETED,
+      { message: matchInfo.resultSummary, matchId: matchInfo.matchId },
+      { title: 'Match Completed', body: matchInfo.resultSummary }
+    );
   });
 };
 

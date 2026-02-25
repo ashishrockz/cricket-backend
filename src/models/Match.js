@@ -77,7 +77,8 @@ const bowlingStatsSchema = new mongoose.Schema({
   noBalls: { type: Number, default: 0 },
   dotBalls: { type: Number, default: 0 },
   fours: { type: Number, default: 0 },
-  sixes: { type: Number, default: 0 }
+  sixes: { type: Number, default: 0 },
+  currentOverRuns: { type: Number, default: 0 } // resets each over, used for maiden detection
 }, { _id: true });
 
 bowlingStatsSchema.virtual('economyRate').get(function () {

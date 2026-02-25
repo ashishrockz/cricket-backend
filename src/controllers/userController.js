@@ -158,4 +158,19 @@ const getUserStats = asyncHandler(async (req, res, next) => {
   });
 });
 
-module.exports = { getUserById, updateProfile, searchUsers, getMatchHistory, getUserStats };
+/**
+ * @desc    Register or update the device FCM token for push notifications
+ * @route   PATCH /api/v1/users/fcm-token
+ * @access  Private
+ */
+const updateFcmToken = asyncHandler(async (req, res, next) => {
+  const { fcmToken } = req.body;
+  if (!fcmToken || typeof fcmToken !== 'string') {
+    return next(ApiError.badRequest('fcmToken is required'));
+  }
+
+  await User.findByIdAndUpdate(req.user._id, { fcmToken });
+  ApiResponse.success(res, null, 'FCM token registered');
+});
+
+module.exports = { getUserById, updateProfile, searchUsers, getMatchHistory, getUserStats, updateFcmToken };

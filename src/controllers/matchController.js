@@ -353,7 +353,44 @@ const getMatchTimeline = asyncHandler(async (req, res, next) => {
   ApiResponse.paginated(res, events, buildPaginationResponse(page, limit, totalDocs));
 });
 
+/**
+ * @desc    Search live/public matches for spectators
+ * @route   GET /api/v1/matches?status=in_progress&format=T20&page=1
+ * @access  Public
+ */
+const searchMatches = asyncHandler(async (req, res) => {
+  const { page, limit, skip } = paginate(req.query);
+  const { status, format } = req.query;
+
+  const filter = {};
+  if (status) filter.status = status;
+  else filter.status = { $in: [MATCH_STATUS.IN_PROGRESS, MATCH_STATUS.COMPLETED] };
+  if (format) filter.format = format;
+
+  const [matches, totalDocs] = await Promise.all([
+    Match.find(filter)
+      .populate('createdBy', 'username fullName avatar')
+      .select('teamA.name teamB.name format totalOvers status currentInnings matchDate startedAt completedAt result createdBy venue')
+      .sort({ startedAt: -1 })
+      .skip(skip).limit(limit).lean(),
+    Match.countDocuments(filter)
+  ]);
+
+  // Attach current score summary
+  const enriched = matches.map(m => {
+    const inningsData = m.innings ? m.innings[m.currentInnings - 1] : null;
+    return {
+      ...m,
+      currentScore: inningsData
+        ? { runs: inningsData.totalRuns, wickets: inningsData.totalWickets, overs: `${inningsData.totalOvers}.${inningsData.totalBalls}` }
+        : null
+    };
+  });
+
+  ApiResponse.paginated(res, enriched, buildPaginationResponse(page, limit, totalDocs));
+});
+
 module.exports = {
   getMatchDetails, recordToss, startMatch, endInnings,
-  getLiveScore, getMatchTimeline
+  getLiveScore, getMatchTimeline, searchMatches
 };

@@ -2,6 +2,7 @@ const Room = require('../models/Room');
 const Match = require('../models/Match');
 const User = require('../models/User');
 const Friendship = require('../models/Friendship');
+const RoomInvitation = require('../models/RoomInvitation');
 const { ApiError, ApiResponse } = require('../utils/apiHelpers');
 const asyncHandler = require('../utils/asyncHandler');
 const { paginate, buildPaginationResponse } = require('../utils/pagination');
@@ -9,6 +10,7 @@ const { ROOM_STATUS, PLAYER_TYPES, FRIEND_STATUS } = require('../config/constant
 const { getIO } = require('../socket/socketManager');
 const { SOCKET_EVENTS } = require('../config/constants');
 const { getPlanFeatures } = require('../services/subscriptionService');
+const { notifyUser, NOTIFICATION_TYPES } = require('../services/notificationService');
 
 /**
  * @desc    Create a new room
@@ -406,7 +408,87 @@ const getMyRooms = asyncHandler(async (req, res) => {
   ApiResponse.paginated(res, rooms, buildPaginationResponse(page, limit, totalDocs));
 });
 
+// ============================================
+// ROOM INVITATION SYSTEM
+// ============================================
+
+/** POST /api/v1/rooms/:id/invite — invite a friend to the room */
+const inviteToRoom = asyncHandler(async (req, res, next) => {
+  const { userId: invitedUserId } = req.body;
+  if (!invitedUserId) return next(ApiError.badRequest('userId is required'));
+
+  const room = await Room.findById(req.params.id);
+  if (!room) return next(ApiError.notFound('Room not found'));
+  if (!room.isMember(req.user._id)) return next(ApiError.forbidden('You are not a member of this room'));
+  if (room.status === 'live' || room.status === 'completed') return next(ApiError.badRequest('Cannot invite to a live or completed room'));
+
+  const invitedUser = await User.findById(invitedUserId);
+  if (!invitedUser) return next(ApiError.notFound('User not found'));
+  if (room.isMember(invitedUserId)) return next(ApiError.badRequest('User is already a member of this room'));
+
+  // Prevent duplicate pending invitations
+  const existing = await RoomInvitation.findOne({ room: room._id, invitedUser: invitedUserId, status: 'pending' });
+  if (existing) return next(ApiError.badRequest('Invitation already sent'));
+
+  const invitation = await RoomInvitation.create({ room: room._id, invitedBy: req.user._id, invitedUser: invitedUserId });
+
+  // Notify the invited user via socket
+  notifyUser(invitedUserId, NOTIFICATION_TYPES.ROOM_INVITE, {
+    message:    `${req.user.fullName || req.user.username} invited you to join room "${room.name}"`,
+    roomId:     room._id,
+    roomCode:   room.roomCode,
+    roomName:   room.name,
+    inviteId:   invitation._id,
+    invitedBy:  { id: req.user._id, username: req.user.username, fullName: req.user.fullName }
+  });
+
+  ApiResponse.created(res, { invitation }, 'Invitation sent');
+});
+
+/** GET /api/v1/rooms/invitations — pending invitations for the current user */
+const getMyInvitations = asyncHandler(async (req, res) => {
+  const invitations = await RoomInvitation.find({ invitedUser: req.user._id, status: 'pending' })
+    .populate('room', 'roomCode name status matchFormat overs')
+    .populate('invitedBy', 'username fullName avatar')
+    .sort({ createdAt: -1 }).lean();
+
+  ApiResponse.success(res, { invitations });
+});
+
+/** POST /api/v1/rooms/invitations/:inviteId/accept */
+const acceptInvitation = asyncHandler(async (req, res, next) => {
+  const invitation = await RoomInvitation.findOne({ _id: req.params.inviteId, invitedUser: req.user._id, status: 'pending' });
+  if (!invitation) return next(ApiError.notFound('Invitation not found or already handled'));
+
+  const room = await Room.findById(invitation.room);
+  if (!room) { invitation.status = 'expired'; await invitation.save(); return next(ApiError.notFound('Room no longer exists')); }
+  if (room.status === 'live' || room.status === 'completed') {
+    invitation.status = 'expired'; await invitation.save();
+    return next(ApiError.badRequest('Room is no longer accepting members'));
+  }
+
+  // Add user as a member (take available role or default to scorer)
+  const availableRoles = room.getAvailableRoles();
+  const role = availableRoles[0] || 'scorer';
+  room.members.push({ user: req.user._id, role });
+  invitation.status = 'accepted';
+
+  await Promise.all([room.save(), invitation.save()]);
+
+  ApiResponse.success(res, { room: { _id: room._id, roomCode: room.roomCode, name: room.name } }, 'Invitation accepted');
+});
+
+/** POST /api/v1/rooms/invitations/:inviteId/decline */
+const declineInvitation = asyncHandler(async (req, res, next) => {
+  const invitation = await RoomInvitation.findOne({ _id: req.params.inviteId, invitedUser: req.user._id, status: 'pending' });
+  if (!invitation) return next(ApiError.notFound('Invitation not found'));
+  invitation.status = 'declined';
+  await invitation.save();
+  ApiResponse.success(res, null, 'Invitation declined');
+});
+
 module.exports = {
   createRoom, joinRoom, leaveRoom, getRoomDetails, getRoomByCode,
-  addPlayerToTeam, removePlayerFromTeam, getMyRooms
+  addPlayerToTeam, removePlayerFromTeam, getMyRooms,
+  inviteToRoom, getMyInvitations, acceptInvitation, declineInvitation
 };

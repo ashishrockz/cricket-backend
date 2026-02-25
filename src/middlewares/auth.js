@@ -1,7 +1,8 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const { ApiError } = require('../utils/apiHelpers');
-const { ROLES } = require('../config/constants');
+const jwt            = require('jsonwebtoken');
+const User           = require('../models/User');
+const TokenBlacklist = require('../models/TokenBlacklist');
+const { ApiError }   = require('../utils/apiHelpers');
+const { ROLES }      = require('../config/constants');
 
 /**
  * Authenticate user via JWT Bearer token
@@ -16,6 +17,12 @@ const authenticate = async (req, res, next) => {
 
     if (!token) {
       return next(ApiError.unauthorized('Access denied. No token provided.'));
+    }
+
+    // Check blacklist (tokens invalidated by logout)
+    const isBlacklisted = await TokenBlacklist.exists({ token });
+    if (isBlacklisted) {
+      return next(ApiError.unauthorized('Token has been revoked. Please login again.'));
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);

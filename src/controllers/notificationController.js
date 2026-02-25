@@ -125,4 +125,59 @@ const getNotificationStats = asyncHandler(async (req, res) => {
   ApiResponse.success(res, { total, byType, byStatus, recentBroadcasts, totalRecipientsReached: totalRecipients[0]?.total || 0 });
 });
 
-module.exports = { sendNotification, broadcastNotification, listNotifications, getNotificationStats };
+// ============================================
+// USER-FACING NOTIFICATION APIs
+// ============================================
+
+/** GET /api/v1/notifications/me */
+const getMyNotifications = asyncHandler(async (req, res) => {
+  const { page, limit, skip } = paginate(req.query);
+  const filter = {
+    $or: [
+      { recipient: req.user._id },
+      { isBulk: true, bulkAudience: 'all' }
+    ],
+    ...(req.query.unreadOnly === 'true' ? { isRead: false } : {})
+  };
+  const [notifications, totalDocs] = await Promise.all([
+    Notification.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    Notification.countDocuments(filter)
+  ]);
+  ApiResponse.paginated(res, notifications, buildPaginationResponse(page, limit, totalDocs));
+});
+
+/** GET /api/v1/notifications/unread-count */
+const getUnreadCount = asyncHandler(async (req, res) => {
+  const count = await Notification.countDocuments({
+    $or: [{ recipient: req.user._id }, { isBulk: true, bulkAudience: 'all' }],
+    isRead: false
+  });
+  ApiResponse.success(res, { count });
+});
+
+/** PATCH /api/v1/notifications/:id/read */
+const markAsRead = asyncHandler(async (req, res, next) => {
+  const notification = await Notification.findOne({
+    _id: req.params.id,
+    $or: [{ recipient: req.user._id }, { isBulk: true }]
+  });
+  if (!notification) return next(ApiError.notFound('Notification not found'));
+  notification.isRead = true;
+  notification.readAt = new Date();
+  await notification.save();
+  ApiResponse.success(res, { notification }, 'Marked as read');
+});
+
+/** POST /api/v1/notifications/mark-all-read */
+const markAllRead = asyncHandler(async (req, res) => {
+  await Notification.updateMany(
+    { $or: [{ recipient: req.user._id }, { isBulk: true, bulkAudience: 'all' }], isRead: false },
+    { $set: { isRead: true, readAt: new Date() } }
+  );
+  ApiResponse.success(res, null, 'All notifications marked as read');
+});
+
+module.exports = {
+  sendNotification, broadcastNotification, listNotifications, getNotificationStats,
+  getMyNotifications, getUnreadCount, markAsRead, markAllRead
+};

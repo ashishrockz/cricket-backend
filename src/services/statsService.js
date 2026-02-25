@@ -118,4 +118,38 @@ const syncMatchStatsToProfiles = async (matchId) => {
   }
 };
 
-module.exports = { syncMatchStatsToProfiles };
+/**
+ * Aggregated career stats for a player — reads from User.stats + recent match history.
+ */
+const getPlayerCareerStats = async (userId) => {
+  const [user, recentMatches] = await Promise.all([
+    User.findById(userId)
+      .select('username fullName avatar city playingRole battingStyle bowlingStyle stats')
+      .lean(),
+    Match.find({
+      $or: [{ 'teamA.players.user': userId }, { 'teamB.players.user': userId }],
+      status: 'completed'
+    })
+      .sort({ completedAt: -1 }).limit(10)
+      .select('teamA.name teamB.name result format totalOvers completedAt matchDate')
+      .lean()
+  ]);
+
+  if (!user) return null;
+
+  const { stats } = user;
+  const battingAverage   = stats.matchesPlayed > 0 ? (stats.totalRuns / Math.max(stats.matchesPlayed, 1)).toFixed(2) : '0.00';
+  const battingStrikeRate = stats.totalBallsFaced > 0 ? ((stats.totalRuns / stats.totalBallsFaced) * 100).toFixed(2) : '0.00';
+  const bowlingAverage   = stats.totalWickets > 0 ? (stats.totalRunsConceded / stats.totalWickets).toFixed(2) : '—';
+  const bowlingEconomy   = stats.totalBallsBowled > 0 ? ((stats.totalRunsConceded / stats.totalBallsBowled) * 6).toFixed(2) : '—';
+
+  return {
+    profile:  { username: user.username, fullName: user.fullName, avatar: user.avatar, city: user.city, playingRole: user.playingRole, battingStyle: user.battingStyle, bowlingStyle: user.bowlingStyle },
+    batting:  { matches: stats.matchesPlayed, runs: stats.totalRuns, ballsFaced: stats.totalBallsFaced, highestScore: stats.highestScore, average: battingAverage, strikeRate: battingStrikeRate, fifties: stats.fifties, hundreds: stats.hundreds },
+    bowling:  { wickets: stats.totalWickets, ballsBowled: stats.totalBallsBowled, runsConceded: stats.totalRunsConceded, bestBowling: `${stats.bestBowling.wickets}/${stats.bestBowling.runs}`, average: bowlingAverage, economy: bowlingEconomy },
+    fielding: { catches: stats.totalCatches },
+    recentMatches
+  };
+};
+
+module.exports = { syncMatchStatsToProfiles, getPlayerCareerStats };
