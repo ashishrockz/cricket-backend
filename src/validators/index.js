@@ -12,11 +12,7 @@ const authValidators = {
           'string.pattern.base': 'Username can only contain letters, numbers, and underscores'
         }),
       email: Joi.string().email().required(),
-      password: Joi.string().min(8).max(128)
-        .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-        .required().messages({
-          'string.pattern.base': 'Password must contain at least one uppercase, one lowercase, one number, and one special character'
-        }),
+      password: Joi.string().min(8).max(128).required(),
       fullName: Joi.string().min(2).max(100).trim().required(),
       phone: Joi.string().pattern(/^\+?[1-9]\d{6,14}$/).optional().allow(''),
       playingRole: Joi.string().valid(...Object.values(PLAYING_ROLES)).optional(),
