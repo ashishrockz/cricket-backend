@@ -6,16 +6,24 @@ let transporter = null;
 /**
  * Initialize the nodemailer transporter lazily
  */
+// Support both SMTP_* and EMAIL_* variable naming conventions
+const smtpUser = () => process.env.SMTP_USER || process.env.EMAIL_USER;
+const smtpPass = () => process.env.SMTP_PASS || process.env.EMAIL_PASS;
+const smtpHost = () => process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com';
+const smtpPort = () => parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT || '587');
+const smtpSecure = () => (process.env.SMTP_SECURE || process.env.EMAIL_SECURE) === 'true';
+const smtpFrom = () => process.env.SMTP_FROM || process.env.EMAIL_FROM || smtpUser();
+
 const getTransporter = () => {
   if (transporter) return transporter;
 
   const smtpConfig = {
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === 'true',
+    host: smtpHost(),
+    port: smtpPort(),
+    secure: smtpSecure(),
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
+      user: smtpUser(),
+      pass: smtpPass()
     }
   };
 
@@ -27,14 +35,14 @@ const getTransporter = () => {
  * Send a raw email
  */
 const sendEmail = async ({ to, subject, html, text }) => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    logger.warn('Email service: SMTP credentials not configured, skipping email send');
+  if (!smtpUser() || !smtpPass()) {
+    logger.warn('Email service: SMTP credentials not configured (set SMTP_USER/SMTP_PASS or EMAIL_USER/EMAIL_PASS), skipping email send');
     return { success: false, reason: 'SMTP not configured' };
   }
 
   try {
     const info = await getTransporter().sendMail({
-      from: `"${process.env.APP_NAME || 'CricketScore'}" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+      from: `"${process.env.APP_NAME || 'CricketScore'}" <${smtpFrom()}>`,
       to,
       subject,
       html,
