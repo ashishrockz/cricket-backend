@@ -23,6 +23,7 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const tournamentRoutes = require('./routes/tournamentRoutes');
+const publicTournamentRoutes = require('./routes/publicTournamentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const enterpriseRoutes = require('./routes/enterpriseRoutes');
 const adRoutes = require('./routes/adRoutes');
@@ -205,6 +206,9 @@ app.use('/api/v1/stats', statsRoutes);
 // Social & Notifications
 app.use('/api/v1/announcements', announcementRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+
+// Public tournaments (Cricbuzz-style user-facing)
+app.use('/api/v1/tournaments', publicTournamentRoutes);
 
 // Admin panel
 app.use('/api/v1/admin', adminRoutes);
