@@ -59,16 +59,58 @@ app.use(hpp());
 
 // Rate limiting — only active in production
 if (process.env.NODE_ENV === 'production') {
+  // General API limiter — admins get a higher quota via keyGenerator
   const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
     max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-    message: {
-      success: false,
-      message: 'Too many requests from this IP, please try again later.'
+    // Admins identified by role claim in JWT get 3× the limit
+    keyGenerator: (req) => {
+      const auth = req.headers.authorization || '';
+      if (auth.startsWith('Bearer ')) {
+        try {
+          const jwt = require('jsonwebtoken');
+          const decoded = jwt.verify(auth.slice(7), process.env.JWT_SECRET);
+          if (decoded.role === 'admin' || decoded.role === 'super_admin') {
+            return `admin:${decoded.id}`;
+          }
+        } catch (_) { /* fall through to IP */ }
+      }
+      return req.ip;
+    },
+    handler: (_req, res) => {
+      res.status(429).json({
+        success: false,
+        message: 'Too many requests, please try again later.'
+      });
+    },
+    skip: (req) => {
+      // Give admins 300 req/window vs 100 for regular users
+      const auth = req.headers.authorization || '';
+      if (auth.startsWith('Bearer ')) {
+        try {
+          const jwt = require('jsonwebtoken');
+          const decoded = jwt.verify(auth.slice(7), process.env.JWT_SECRET);
+          if (decoded.role === 'admin' || decoded.role === 'super_admin') {
+            req._adminRateLimit = true;
+          }
+        } catch (_) { /* ignore */ }
+      }
+      return false;
     },
     standardHeaders: true,
     legacyHeaders: false
   });
+
+  // Separate higher-limit rate limiter for admin routes
+  const adminLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    message: { success: false, message: 'Too many requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false
+  });
+
+  app.use('/api/v1/admin/', adminLimiter);
   app.use('/api/', limiter);
 
   const authLimiter = rateLimit({

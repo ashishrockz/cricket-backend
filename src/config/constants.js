@@ -151,6 +151,12 @@ module.exports = {
     MATCH_REACTION: 'match_reaction',
 
     // Error
-    ERROR: 'error'
+    ERROR: 'error',
+
+    // Admin real-time events
+    ADMIN_NEW_USER: 'admin:new_user',
+    ADMIN_MATCH_STARTED: 'admin:match_started',
+    ADMIN_MATCH_COMPLETED: 'admin:match_completed',
+    ADMIN_STATS_UPDATE: 'admin:stats_update'
   }
 };

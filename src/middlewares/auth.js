@@ -66,9 +66,14 @@ const authorize = (...roles) => {
 };
 
 /**
- * Admin only shorthand
+ * Admin only shorthand (admin + super_admin)
  */
 const adminOnly = authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN);
+
+/**
+ * Super admin only shorthand
+ */
+const superAdminOnly = authorize(ROLES.SUPER_ADMIN);
 
 /**
  * Optional authentication - populates req.user if token exists but doesn't fail
@@ -92,4 +97,4 @@ const optionalAuth = async (req, res, next) => {
 // Alias for backward compatibility and descriptive clarity
 const optionalAuthenticate = optionalAuth;
 
-module.exports = { authenticate, authorize, adminOnly, optionalAuth, optionalAuthenticate };
+module.exports = { authenticate, authorize, adminOnly, superAdminOnly, optionalAuth, optionalAuthenticate };

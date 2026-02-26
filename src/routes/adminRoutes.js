@@ -2,9 +2,10 @@ const router = require('express').Router();
 const {
   getDashboard, listUsers, getUserDetails, updateUser, deleteUser,
   listMatches, listRooms, abandonMatch, getSystemStats,
-  banUser, unbanUser, activateUser, deactivateUser
+  banUser, unbanUser, activateUser, deactivateUser,
+  bulkUserAction, exportUsers, exportMatches, exportSubscriptions
 } = require('../controllers/adminController');
-const { authenticate, adminOnly } = require('../middlewares/auth');
+const { authenticate, adminOnly, superAdminOnly } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 const { adminValidators } = require('../validators');
 
@@ -28,15 +29,22 @@ router.use(adminOnly);
 router.get('/dashboard', getDashboard);
 router.get('/system', getSystemStats);
 
+// ─── Export routes (super_admin only) ────────────────────────────────────────
+router.get('/export/users',          superAdminOnly, exportUsers);
+router.get('/export/matches',        superAdminOnly, exportMatches);
+router.get('/export/subscriptions',  superAdminOnly, exportSubscriptions);
+
 // ─── User management ──────────────────────────────────────────────────────────
-router.get('/users', validate(adminValidators.listUsers), listUsers);
-router.get('/users/:id', getUserDetails);
-router.put('/users/:id', validate(adminValidators.updateUser), updateUser);
-router.patch('/users/:id', validate(adminValidators.updateUser), updateUser);
-router.delete('/users/:id', deleteUser);
-router.post('/users/:id/ban', banUser);
-router.post('/users/:id/unban', unbanUser);
-router.post('/users/:id/activate', activateUser);
+// Bulk action must be before /:id to avoid route conflict
+router.post('/users/bulk',        bulkUserAction);
+router.get('/users',              validate(adminValidators.listUsers), listUsers);
+router.get('/users/:id',          getUserDetails);
+router.put('/users/:id',          validate(adminValidators.updateUser), updateUser);
+router.patch('/users/:id',        validate(adminValidators.updateUser), updateUser);
+router.delete('/users/:id',       superAdminOnly, deleteUser);
+router.post('/users/:id/ban',     banUser);
+router.post('/users/:id/unban',   unbanUser);
+router.post('/users/:id/activate',   activateUser);
 router.post('/users/:id/deactivate', deactivateUser);
 
 // ─── Match & Room management ──────────────────────────────────────────────────
@@ -53,20 +61,20 @@ router.use('/ads', adminAdRoutes);
 // ─── Subscription management (admin portion) ─────────────────────────────────
 const subCtrl = require('../controllers/subscriptionController');
 // /subscription-plans aliases (portal-friendly URLs)
-router.get('/subscription-plans', subCtrl.adminGetPlans);
-router.post('/subscription-plans', subCtrl.createPlan);
-router.put('/subscription-plans/:id', subCtrl.updatePlan);
-router.delete('/subscription-plans/:id', subCtrl.deletePlan);
+router.get('/subscription-plans',        subCtrl.adminGetPlans);
+router.post('/subscription-plans',       superAdminOnly, subCtrl.createPlan);
+router.put('/subscription-plans/:id',    superAdminOnly, subCtrl.updatePlan);
+router.delete('/subscription-plans/:id', superAdminOnly, subCtrl.deletePlan);
 // /subscriptions/* — static paths first
-router.get('/subscriptions/analytics', subCtrl.getSubscriptionAnalytics);
-router.get('/subscriptions/plans/all', subCtrl.adminGetPlans);
-router.post('/subscriptions/plans', subCtrl.createPlan);
-router.put('/subscriptions/plans/:id', subCtrl.updatePlan);
-router.get('/subscriptions', subCtrl.listSubscriptions);
-router.post('/subscriptions/assign', subCtrl.adminAssignPlan);
+router.get('/subscriptions/analytics',   subCtrl.getSubscriptionAnalytics);
+router.get('/subscriptions/plans/all',   subCtrl.adminGetPlans);
+router.post('/subscriptions/plans',      superAdminOnly, subCtrl.createPlan);
+router.put('/subscriptions/plans/:id',   superAdminOnly, subCtrl.updatePlan);
+router.get('/subscriptions',             subCtrl.listSubscriptions);
+router.post('/subscriptions/assign',     subCtrl.adminAssignPlan);
 router.get('/subscriptions/user/:userId', subCtrl.getUserSubscriptionByUserId);
-router.get('/subscriptions/:id', subCtrl.getSubscription);
-router.put('/subscriptions/:id/cancel', subCtrl.cancelSubscription);
+router.get('/subscriptions/:id',         subCtrl.getSubscription);
+router.put('/subscriptions/:id/cancel',  subCtrl.cancelSubscription);
 router.post('/subscriptions/:id/cancel', subCtrl.cancelSubscription);
 
 module.exports = router;

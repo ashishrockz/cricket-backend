@@ -12,6 +12,13 @@ const { paginate, buildPaginationResponse } = require('../utils/pagination');
 const logger = require('../config/logger');
 const { logAction } = require('../services/auditService');
 
+/** Escape a value for CSV (wrap in quotes, escape internal quotes) */
+const csvEscape = (val) => {
+  if (val === null || val === undefined) return '';
+  const str = String(val).replace(/"/g, '""');
+  return `"${str}"`;
+};
+
 /**
  * @desc    Get admin dashboard stats
  * @route   GET /api/v1/admin/dashboard
@@ -354,27 +361,202 @@ const abandonMatch = asyncHandler(async (req, res, next) => {
  * @access  Admin
  */
 const getSystemStats = asyncHandler(async (req, res) => {
-  const dbStats = await require('mongoose').connection.db.stats();
+  const mongoose = require('mongoose');
+  const dbStats = await mongoose.connection.db.stats();
+  const mem = process.memoryUsage();
+  const uptimeSeconds = Math.floor(process.uptime());
+
+  // Measure DB latency
+  const dbStart = Date.now();
+  await mongoose.connection.db.command({ ping: 1 });
+  const dbLatencyMs = Date.now() - dbStart;
+
+  const [totalUsers, liveMatches, activeRooms] = await Promise.all([
+    User.countDocuments(),
+    Match.countDocuments({ status: 'in_progress' }),
+    Room.countDocuments({ status: 'live' })
+  ]);
 
   ApiResponse.success(res, {
     database: {
       name: dbStats.db,
+      status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+      latencyMs: dbLatencyMs,
       collections: dbStats.collections,
-      dataSize: `${(dbStats.dataSize / 1024 / 1024).toFixed(2)} MB`,
-      indexSize: `${(dbStats.indexSize / 1024 / 1024).toFixed(2)} MB`,
-      storageSize: `${(dbStats.storageSize / 1024 / 1024).toFixed(2)} MB`
+      dataSizeMB: parseFloat((dbStats.dataSize / 1024 / 1024).toFixed(2)),
+      indexSizeMB: parseFloat((dbStats.indexSize / 1024 / 1024).toFixed(2)),
+      storageSizeMB: parseFloat((dbStats.storageSize / 1024 / 1024).toFixed(2))
     },
     server: {
       nodeVersion: process.version,
-      uptime: `${(process.uptime() / 3600).toFixed(2)} hours`,
-      memoryUsage: {
-        rss: `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB`,
-        heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
-        heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`
-      },
-      environment: process.env.NODE_ENV
+      uptimeSeconds,
+      environment: process.env.NODE_ENV || 'development',
+      appVersion: process.env.npm_package_version || '1.0.0',
+      memory: {
+        rssBytes: mem.rss,
+        heapUsedBytes: mem.heapUsed,
+        heapTotalBytes: mem.heapTotal,
+        externalBytes: mem.external
+      }
+    },
+    live: {
+      liveMatches,
+      activeRooms,
+      totalUsers
     }
   });
+});
+
+/**
+ * @desc    Bulk action on multiple users
+ * @route   POST /api/v1/admin/users/bulk
+ * @access  Admin
+ */
+const bulkUserAction = asyncHandler(async (req, res, next) => {
+  const { action, userIds, reason } = req.body;
+
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return next(ApiError.badRequest('userIds must be a non-empty array'));
+  }
+  if (userIds.length > 100) {
+    return next(ApiError.badRequest('Cannot bulk-action more than 100 users at once'));
+  }
+
+  const validActions = ['ban', 'unban', 'activate', 'deactivate'];
+  if (!validActions.includes(action)) {
+    return next(ApiError.badRequest(`action must be one of: ${validActions.join(', ')}`));
+  }
+
+  // Prevent operating on super_admins unless requester is super_admin
+  const filter = { _id: { $in: userIds } };
+  if (req.user.role !== 'super_admin') {
+    filter.role = { $ne: 'super_admin' };
+  }
+  // Prevent self-action
+  filter._id.$in = userIds.filter((id) => id !== req.user._id.toString());
+
+  let update = {};
+  let auditAction = 'other';
+  if (action === 'ban')        { update = { $set: { isBanned: true, refreshToken: null } }; auditAction = 'user_banned'; }
+  if (action === 'unban')      { update = { $set: { isBanned: false } }; auditAction = 'user_unbanned'; }
+  if (action === 'activate')   { update = { $set: { isActive: true } }; auditAction = 'user_activated'; }
+  if (action === 'deactivate') { update = { $set: { isActive: false } }; auditAction = 'user_deactivated'; }
+
+  const result = await User.updateMany(filter, update);
+
+  await logAction(req, {
+    action: auditAction, category: 'users',
+    description: `Bulk ${action} applied to ${result.modifiedCount} users`,
+    metadata: { requestedCount: userIds.length, modifiedCount: result.modifiedCount, reason },
+    severity: action === 'ban' ? 'critical' : 'warning'
+  });
+
+  ApiResponse.success(res, {
+    action,
+    requestedCount: userIds.length,
+    modifiedCount: result.modifiedCount
+  }, `Bulk ${action} completed`);
+});
+
+/**
+ * @desc    Export users as CSV
+ * @route   GET /api/v1/admin/export/users
+ * @access  Super Admin
+ */
+const exportUsers = asyncHandler(async (req, res) => {
+  const { search, role, isActive, isBanned } = req.query;
+
+  const filter = {};
+  if (search) {
+    const regex = new RegExp(search, 'i');
+    filter.$or = [{ username: regex }, { email: regex }, { fullName: regex }];
+  }
+  if (role) filter.role = role;
+  if (isActive !== undefined) filter.isActive = isActive === 'true';
+  if (isBanned !== undefined) filter.isBanned = isBanned === 'true';
+
+  const users = await User.find(filter)
+    .select('username email fullName role isActive isBanned subscriptionPlan stats createdAt')
+    .limit(10000).lean();
+
+  const headers = ['id', 'username', 'email', 'fullName', 'role', 'isActive', 'isBanned', 'subscriptionPlan', 'matchesPlayed', 'totalRuns', 'totalWickets', 'createdAt'];
+  const rows = users.map((u) => [
+    u._id, u.username, u.email, u.fullName, u.role,
+    u.isActive, u.isBanned, u.subscriptionPlan || 'free',
+    u.stats?.matchesPlayed ?? 0, u.stats?.totalRuns ?? 0, u.stats?.totalWickets ?? 0,
+    u.createdAt
+  ].map(csvEscape).join(','));
+
+  const csv = [headers.join(','), ...rows].join('\n');
+  const date = new Date().toISOString().slice(0, 10);
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="users-${date}.csv"`);
+  res.send(csv);
+});
+
+/**
+ * @desc    Export matches as CSV
+ * @route   GET /api/v1/admin/export/matches
+ * @access  Super Admin
+ */
+const exportMatches = asyncHandler(async (req, res) => {
+  const { status, format } = req.query;
+
+  const filter = {};
+  if (status) filter.status = status;
+  if (format) filter.format = format;
+
+  const matches = await Match.find(filter)
+    .select('teamA.name teamB.name format totalOvers status result matchDate createdAt createdBy')
+    .populate('createdBy', 'username email')
+    .limit(10000).lean();
+
+  const headers = ['id', 'teamA', 'teamB', 'format', 'overs', 'status', 'winner', 'resultSummary', 'createdBy', 'matchDate', 'createdAt'];
+  const rows = matches.map((m) => [
+    m._id, m.teamA?.name, m.teamB?.name, m.format, m.totalOvers,
+    m.status, m.result?.winner || '', m.result?.summary || '',
+    m.createdBy?.username || '', m.matchDate || '', m.createdAt
+  ].map(csvEscape).join(','));
+
+  const csv = [headers.join(','), ...rows].join('\n');
+  const date = new Date().toISOString().slice(0, 10);
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="matches-${date}.csv"`);
+  res.send(csv);
+});
+
+/**
+ * @desc    Export subscriptions as CSV
+ * @route   GET /api/v1/admin/export/subscriptions
+ * @access  Super Admin
+ */
+const exportSubscriptions = asyncHandler(async (req, res) => {
+  const { status, planSlug } = req.query;
+
+  const filter = {};
+  if (status) filter.status = status;
+  if (planSlug) filter.planSlug = planSlug;
+
+  const subs = await Subscription.find(filter)
+    .populate('user', 'username email fullName')
+    .limit(10000).lean();
+
+  const headers = ['id', 'username', 'email', 'fullName', 'planSlug', 'status', 'billingCycle', 'startDate', 'endDate', 'createdAt'];
+  const rows = subs.map((s) => [
+    s._id,
+    s.user?.username || '', s.user?.email || '', s.user?.fullName || '',
+    s.planSlug, s.status, s.billingCycle,
+    s.startDate || '', s.endDate || '', s.createdAt
+  ].map(csvEscape).join(','));
+
+  const csv = [headers.join(','), ...rows].join('\n');
+  const date = new Date().toISOString().slice(0, 10);
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="subscriptions-${date}.csv"`);
+  res.send(csv);
 });
 
 /**
@@ -448,5 +630,6 @@ const deactivateUser = asyncHandler(async (req, res, next) => {
 module.exports = {
   getDashboard, listUsers, getUserDetails, updateUser, deleteUser,
   listMatches, listRooms, abandonMatch, getSystemStats,
-  banUser, unbanUser, activateUser, deactivateUser
+  banUser, unbanUser, activateUser, deactivateUser,
+  bulkUserAction, exportUsers, exportMatches, exportSubscriptions
 };

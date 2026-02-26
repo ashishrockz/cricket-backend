@@ -2,7 +2,7 @@ require('dotenv').config();
 const http = require('http');
 const app = require('./app');
 const { connectDB } = require('./config/database');
-const { initializeSocket } = require('./socket/socketManager');
+const { initializeSocket, startAdminStatsBroadcast } = require('./socket/socketManager');
 const logger = require('./config/logger');
 const { seedAdmin } = require('./utils/seeder');
 const { seedSubscriptionPlans } = require('./services/subscriptionService');
@@ -23,6 +23,7 @@ const startServer = async () => {
     // Seed default admin user and subscription plans
     await seedAdmin();
     await seedSubscriptionPlans();
+    startAdminStatsBroadcast();
 
     server.listen(PORT, () => {
       logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
