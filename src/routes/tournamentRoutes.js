@@ -61,29 +61,308 @@ const fixtureResultSchema = Joi.object({
   })
 });
 
-// Stats overview
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/stats:
+ *   get:
+ *     summary: Tournament overview stats — counts by status, format, recent activity
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Tournament stats
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ */
 router.get('/stats', authenticate, adminOnly, getTournamentStats);
 
-// CRUD
+/**
+ * @swagger
+ * /api/v1/admin/tournaments:
+ *   get:
+ *     summary: List all tournaments with filters
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PageQuery'
+ *       - $ref: '#/components/parameters/LimitQuery'
+ *       - $ref: '#/components/parameters/SearchQuery'
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [draft, registration_open, in_progress, completed, cancelled]
+ *       - in: query
+ *         name: format
+ *         schema:
+ *           type: string
+ *           enum: [league, knockout, group_knockout, round_robin, double_elimination]
+ *     responses:
+ *       200:
+ *         description: Paginated tournament list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: array
+ *                   items: { $ref: '#/components/schemas/Tournament' }
+ *                 pagination: { $ref: '#/components/schemas/PaginationMeta' }
+ */
 router.get('/', authenticate, adminOnly, listTournaments);
+
+/**
+ * @swagger
+ * /api/v1/admin/tournaments:
+ *   post:
+ *     summary: Create a new tournament
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, format, matchFormat, totalOvers]
+ *             properties:
+ *               name:         { type: string, example: IPL 2025 }
+ *               description:  { type: string }
+ *               format:       { type: string, enum: [league, knockout, group_knockout, round_robin, double_elimination] }
+ *               matchFormat:  { type: string, enum: [T10, T20, ODI, TEST, CUSTOM] }
+ *               totalOvers:   { type: integer, example: 20 }
+ *               maxTeams:     { type: integer, example: 8 }
+ *               isPublic:     { type: boolean }
+ *               entryFee:     { type: number }
+ *               prizeMoney:   { type: number }
+ *               startDate:    { type: string, format: date-time }
+ *               endDate:      { type: string, format: date-time }
+ *     responses:
+ *       201:
+ *         description: Tournament created (status = draft)
+ */
 router.post('/', authenticate, adminOnly, validate(createSchema), createTournament);
+
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}:
+ *   get:
+ *     summary: Get tournament details including teams and fixtures
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     responses:
+ *       200:
+ *         description: Tournament details
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
 router.get('/:id', authenticate, adminOnly, getTournamentById);
+
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}:
+ *   put:
+ *     summary: Update tournament details
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/Tournament'
+ *     responses:
+ *       200:
+ *         description: Tournament updated
+ */
 router.put('/:id', authenticate, adminOnly, validate(updateSchema), updateTournament);
 
-// Team management
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}/teams:
+ *   post:
+ *     summary: Add a team to the tournament
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:      { type: string, example: Mumbai Indians }
+ *               shortName: { type: string, example: MI }
+ *               captain:   { type: string, description: User ID }
+ *               color:     { type: string, example: '#004BA0' }
+ *               players:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     name:         { type: string }
+ *                     user:         { type: string }
+ *                     isRegistered: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Team added
+ */
 router.post('/:id/teams', authenticate, adminOnly, validate(addTeamSchema), addTeam);
+
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}/teams/{teamId}:
+ *   delete:
+ *     summary: Remove a team from the tournament
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *       - in: path
+ *         name: teamId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Team removed
+ */
 router.delete('/:id/teams/:teamId', authenticate, adminOnly, removeTeam);
 
-// Fixtures & lifecycle
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}/generate-fixtures:
+ *   post:
+ *     summary: Auto-generate match fixtures based on the tournament format
+ *     description: Generates round-robin, knockout, or group-stage fixtures. Requires at least minTeams registered.
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     responses:
+ *       200:
+ *         description: Fixtures generated
+ *       400:
+ *         description: Insufficient teams or fixtures already exist
+ */
 router.post('/:id/generate-fixtures', authenticate, adminOnly, generateFixtures);
+
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}/start:
+ *   post:
+ *     summary: Start the tournament (status → in_progress)
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     responses:
+ *       200:
+ *         description: Tournament started
+ */
 router.post('/:id/start', authenticate, adminOnly, startTournament);
+
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}/complete:
+ *   post:
+ *     summary: Mark the tournament as completed
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     responses:
+ *       200:
+ *         description: Tournament completed
+ */
 router.post('/:id/complete', authenticate, adminOnly, completeTournament);
+
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}/cancel:
+ *   post:
+ *     summary: Cancel a tournament
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     responses:
+ *       200:
+ *         description: Tournament cancelled
+ */
 router.post('/:id/cancel', authenticate, adminOnly, cancelTournament);
 
-// Fixture result
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}/fixtures/{fixtureId}:
+ *   put:
+ *     summary: Update a fixture result
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *       - in: path
+ *         name: fixtureId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:        { type: string, enum: [scheduled, in_progress, completed, cancelled] }
+ *               winnerId:      { type: string, nullable: true }
+ *               resultSummary: { type: string }
+ *               matchId:       { type: string }
+ *               matchStats:
+ *                 type: object
+ *                 properties:
+ *                   teamARuns:  { type: number }
+ *                   teamAOvers: { type: number }
+ *                   teamBRuns:  { type: number }
+ *                   teamBOvers: { type: number }
+ *     responses:
+ *       200:
+ *         description: Fixture result updated
+ */
 router.put('/:id/fixtures/:fixtureId', authenticate, adminOnly, validate(fixtureResultSchema), updateFixtureResult);
 
-// Points table
+/**
+ * @swagger
+ * /api/v1/admin/tournaments/{id}/points-table:
+ *   get:
+ *     summary: Get the tournament points table / standings
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     responses:
+ *       200:
+ *         description: Points table with team standings
+ */
 router.get('/:id/points-table', authenticate, adminOnly, getPointsTable);
 
 module.exports = router;
