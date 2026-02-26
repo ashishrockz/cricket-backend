@@ -305,7 +305,31 @@ const getAdAnalytics = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * @desc    Toggle ad active/paused status
+ * @route   PATCH /api/v1/admin/ads/:id/toggle
+ * @access  Admin
+ */
+const toggleAdActive = asyncHandler(async (req, res, next) => {
+  const ad = await Ad.findById(req.params.id);
+  if (!ad) return next(ApiError.notFound('Ad not found'));
+
+  const newStatus = ad.status === 'active' ? 'paused' : 'active';
+  ad.status = newStatus;
+  await ad.save();
+
+  await logAction(req, {
+    action: newStatus === 'active' ? 'ad_activated' : 'ad_paused',
+    category: 'system',
+    targetType: 'ad', targetId: ad._id, targetLabel: ad.title,
+    description: `Ad "${ad.title}" ${newStatus === 'active' ? 'activated' : 'paused'} by admin`,
+    severity: 'info'
+  });
+
+  ApiResponse.success(res, { ad }, `Ad ${newStatus === 'active' ? 'activated' : 'paused'}`);
+});
+
 module.exports = {
   getAdsForPlacement, recordClick,
-  listAds, getAd, createAd, updateAd, reviewAd, deleteAd, getAdAnalytics
+  listAds, getAd, createAd, updateAd, reviewAd, deleteAd, getAdAnalytics, toggleAdActive
 };

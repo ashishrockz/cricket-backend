@@ -291,9 +291,48 @@ const getSubscriptionAnalytics = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * @desc    Delete a subscription plan
+ * @route   DELETE /api/v1/admin/subscription-plans/:id
+ * @access  Admin
+ */
+const deletePlan = asyncHandler(async (req, res, next) => {
+  const plan = await SubscriptionPlan.findById(req.params.id);
+  if (!plan) return next(ApiError.notFound('Plan not found'));
+
+  const activeCount = await Subscription.countDocuments({
+    plan: plan._id,
+    status: { $in: ['active', 'trial'] }
+  });
+  if (activeCount > 0) {
+    return next(ApiError.conflict(
+      `Cannot delete plan with ${activeCount} active subscription(s). Deactivate the plan instead.`
+    ));
+  }
+
+  await plan.deleteOne();
+  ApiResponse.success(res, null, 'Plan deleted');
+});
+
+/**
+ * @desc    Get active subscription for a specific user (admin)
+ * @route   GET /api/v1/admin/subscriptions/user/:userId
+ * @access  Admin
+ */
+const getUserSubscriptionByUserId = asyncHandler(async (req, res) => {
+  const subscription = await Subscription.findOne({
+    user: req.params.userId,
+    status: { $in: ['active', 'trial'] }
+  })
+    .populate('plan', 'name slug color badge features price')
+    .lean();
+
+  ApiResponse.success(res, { subscription });
+});
+
 module.exports = {
   getPlans, getMySubscription, getMySubscriptionHistory,
-  adminGetPlans, createPlan, updatePlan,
-  listSubscriptions, getSubscription,
+  adminGetPlans, createPlan, updatePlan, deletePlan,
+  listSubscriptions, getSubscription, getUserSubscriptionByUserId,
   adminAssignPlan, cancelSubscription, getSubscriptionAnalytics
 };

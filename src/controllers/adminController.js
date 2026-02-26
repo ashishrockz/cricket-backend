@@ -377,7 +377,76 @@ const getSystemStats = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * @desc    Ban a user
+ * @route   POST /api/v1/admin/users/:id/ban
+ * @access  Admin
+ */
+const banUser = asyncHandler(async (req, res, next) => {
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser) return next(ApiError.notFound('User not found'));
+  if (targetUser.role === 'super_admin' && req.user.role !== 'super_admin') {
+    return next(ApiError.forbidden('Cannot modify a super admin'));
+  }
+  targetUser.isBanned = true;
+  targetUser.refreshToken = null;
+  await targetUser.save();
+  await logAction(req, {
+    action: 'user_banned', category: 'users',
+    targetType: 'user', targetId: targetUser._id, targetLabel: targetUser.username,
+    description: `User ${targetUser.email} banned by admin`,
+    severity: 'critical'
+  });
+  ApiResponse.success(res, null, 'User banned');
+});
+
+/**
+ * @desc    Unban a user
+ * @route   POST /api/v1/admin/users/:id/unban
+ * @access  Admin
+ */
+const unbanUser = asyncHandler(async (req, res, next) => {
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser) return next(ApiError.notFound('User not found'));
+  targetUser.isBanned = false;
+  await targetUser.save();
+  await logAction(req, {
+    action: 'user_unbanned', category: 'users',
+    targetType: 'user', targetId: targetUser._id, targetLabel: targetUser.username,
+    description: `User ${targetUser.email} unbanned by admin`,
+    severity: 'info'
+  });
+  ApiResponse.success(res, null, 'User unbanned');
+});
+
+/**
+ * @desc    Activate a user account
+ * @route   POST /api/v1/admin/users/:id/activate
+ * @access  Admin
+ */
+const activateUser = asyncHandler(async (req, res, next) => {
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser) return next(ApiError.notFound('User not found'));
+  targetUser.isActive = true;
+  await targetUser.save();
+  ApiResponse.success(res, null, 'User activated');
+});
+
+/**
+ * @desc    Deactivate a user account
+ * @route   POST /api/v1/admin/users/:id/deactivate
+ * @access  Admin
+ */
+const deactivateUser = asyncHandler(async (req, res, next) => {
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser) return next(ApiError.notFound('User not found'));
+  targetUser.isActive = false;
+  await targetUser.save();
+  ApiResponse.success(res, null, 'User deactivated');
+});
+
 module.exports = {
   getDashboard, listUsers, getUserDetails, updateUser, deleteUser,
-  listMatches, listRooms, abandonMatch, getSystemStats
+  listMatches, listRooms, abandonMatch, getSystemStats,
+  banUser, unbanUser, activateUser, deactivateUser
 };

@@ -1,5 +1,7 @@
 const User = require('../models/User');
 const Match = require('../models/Match');
+const Room = require('../models/Room');
+const Subscription = require('../models/Subscription');
 const { ApiResponse } = require('../utils/apiHelpers');
 const asyncHandler = require('../utils/asyncHandler');
 const { MATCH_STATUS } = require('../config/constants');
@@ -417,4 +419,159 @@ const getPlatformAnalytics = asyncHandler(async (req, res) => {
   }, 'Platform analytics fetched');
 });
 
-module.exports = { getBattingLeaderboard, getBowlingLeaderboard, getMatchAnalytics, getPlatformAnalytics };
+/**
+ * @desc    User growth over time
+ * @route   GET /api/v1/admin/analytics/user-growth
+ * @access  Private (Admin)
+ */
+const getUserGrowth = asyncHandler(async (req, res) => {
+  const { period = '30d' } = req.query;
+  const since = getPeriodDate(period) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const data = await User.aggregate([
+    { $match: { createdAt: { $gte: since } } },
+    {
+      $group: {
+        _id: {
+          year:  { $year: '$createdAt' },
+          month: { $month: '$createdAt' },
+          day:   { $dayOfMonth: '$createdAt' },
+        },
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+  ]);
+
+  ApiResponse.success(res, {
+    period,
+    data: data.map(d => ({
+      date: `${d._id.year}-${String(d._id.month).padStart(2, '0')}-${String(d._id.day).padStart(2, '0')}`,
+      count: d.count,
+    })),
+  }, 'User growth fetched');
+});
+
+/**
+ * @desc    Match activity over time
+ * @route   GET /api/v1/admin/analytics/match-activity
+ * @access  Private (Admin)
+ */
+const getMatchActivitySummary = asyncHandler(async (req, res) => {
+  const { period = '30d' } = req.query;
+  const since = getPeriodDate(period) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const data = await Match.aggregate([
+    { $match: { createdAt: { $gte: since } } },
+    {
+      $group: {
+        _id: {
+          year:  { $year: '$createdAt' },
+          month: { $month: '$createdAt' },
+          day:   { $dayOfMonth: '$createdAt' },
+        },
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+  ]);
+
+  ApiResponse.success(res, {
+    period,
+    data: data.map(d => ({
+      date: `${d._id.year}-${String(d._id.month).padStart(2, '0')}-${String(d._id.day).padStart(2, '0')}`,
+      count: d.count,
+    })),
+  }, 'Match activity fetched');
+});
+
+/**
+ * @desc    Revenue over time
+ * @route   GET /api/v1/admin/analytics/revenue
+ * @access  Private (Admin)
+ */
+const getRevenueSummary = asyncHandler(async (req, res) => {
+  const { period = '30d' } = req.query;
+  const since = getPeriodDate(period) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const data = await Subscription.aggregate([
+    { $unwind: '$paymentHistory' },
+    { $match: { 'paymentHistory.status': 'success', 'paymentHistory.paymentDate': { $gte: since } } },
+    {
+      $group: {
+        _id: {
+          year:  { $year: '$paymentHistory.paymentDate' },
+          month: { $month: '$paymentHistory.paymentDate' },
+          day:   { $dayOfMonth: '$paymentHistory.paymentDate' },
+        },
+        revenue: { $sum: '$paymentHistory.amount' },
+        count:   { $sum: 1 },
+      },
+    },
+    { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+  ]);
+
+  const totalRevenue = data.reduce((sum, d) => sum + d.revenue, 0);
+
+  ApiResponse.success(res, {
+    period,
+    totalRevenue,
+    data: data.map(d => ({
+      date: `${d._id.year}-${String(d._id.month).padStart(2, '0')}-${String(d._id.day).padStart(2, '0')}`,
+      revenue: d.revenue,
+      count: d.count,
+    })),
+  }, 'Revenue data fetched');
+});
+
+/**
+ * @desc    Dashboard summary stats
+ * @route   GET /api/v1/admin/analytics/dashboard
+ * @access  Private (Admin)
+ */
+const getDashboardStats = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const [
+    totalUsers,
+    activeUsers,
+    totalMatches,
+    liveMatches,
+    totalRooms,
+    activeSubscriptions,
+    newUsersToday,
+    revenueResult,
+  ] = await Promise.all([
+    User.countDocuments({}),
+    User.countDocuments({ isActive: true, isBanned: false }),
+    Match.countDocuments({}),
+    Match.countDocuments({ status: MATCH_STATUS.IN_PROGRESS }),
+    Room.countDocuments({}),
+    Subscription.countDocuments({ status: { $in: ['active', 'trial'] } }),
+    User.countDocuments({ createdAt: { $gte: startOfDay } }),
+    Subscription.aggregate([
+      { $unwind: '$paymentHistory' },
+      { $match: { 'paymentHistory.status': 'success' } },
+      { $group: { _id: null, total: { $sum: '$paymentHistory.amount' } } },
+    ]),
+  ]);
+
+  const totalRevenue = revenueResult[0]?.total || 0;
+
+  ApiResponse.success(res, {
+    totalUsers,
+    activeUsers,
+    totalMatches,
+    liveMatches,
+    totalRooms,
+    activeSubscriptions,
+    newUsersToday,
+    totalRevenue,
+  }, 'Dashboard stats fetched');
+});
+
+module.exports = {
+  getBattingLeaderboard, getBowlingLeaderboard, getMatchAnalytics, getPlatformAnalytics,
+  getDashboardStats, getUserGrowth, getMatchActivitySummary, getRevenueSummary
+};

@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const {
   listAds, getAd, createAd, updateAd,
-  reviewAd, deleteAd, getAdAnalytics
+  reviewAd, deleteAd, getAdAnalytics, toggleAdActive
 } = require('../controllers/adController');
 
 /**
@@ -17,6 +17,7 @@ router.post('/', createAd);
 router.get('/:id', getAd);
 router.put('/:id', updateAd);
 router.put('/:id/review', reviewAd);
+router.patch('/:id/toggle', toggleAdActive);
 router.delete('/:id', deleteAd);
 
 module.exports = router;

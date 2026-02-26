@@ -2,8 +2,18 @@ const router = require('express').Router();
 const { authenticate, adminOnly } = require('../middlewares/auth');
 const {
   getBattingLeaderboard, getBowlingLeaderboard,
-  getMatchAnalytics, getPlatformAnalytics
+  getMatchAnalytics, getPlatformAnalytics, getDashboardStats,
+  getUserGrowth, getMatchActivitySummary, getRevenueSummary
 } = require('../controllers/analyticsController');
+
+/**
+ * @swagger
+ * /api/v1/admin/analytics/dashboard:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: Dashboard summary — users, matches, rooms, subscriptions, revenue
+ */
+router.get('/dashboard', authenticate, adminOnly, getDashboardStats);
 
 /**
  * @swagger
@@ -47,5 +57,9 @@ router.get('/matches', authenticate, adminOnly, getMatchAnalytics);
  *     summary: Platform analytics — DAU/WAU/MAU, signups, user demographics
  */
 router.get('/platform', authenticate, adminOnly, getPlatformAnalytics);
+
+router.get('/user-growth',    authenticate, adminOnly, getUserGrowth);
+router.get('/match-activity', authenticate, adminOnly, getMatchActivitySummary);
+router.get('/revenue',        authenticate, adminOnly, getRevenueSummary);
 
 module.exports = router;

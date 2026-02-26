@@ -417,8 +417,48 @@ const suspendEnterprise = asyncHandler(async (req, res, next) => {
   ApiResponse.success(res, null, `Academy ${isSuspended ? 'suspended' : 'unsuspended'}`);
 });
 
+/**
+ * @desc    Activate an enterprise (admin)
+ * @route   POST /api/v1/admin/enterprises/:id/activate
+ * @access  Admin
+ */
+const activateEnterprise = asyncHandler(async (req, res, next) => {
+  const enterprise = await Enterprise.findById(req.params.id);
+  if (!enterprise) return next(ApiError.notFound('Academy not found'));
+  enterprise.isActive = true;
+  enterprise.isSuspended = false;
+  await enterprise.save();
+  await logAction(req, {
+    action: 'enterprise_activated', category: 'system',
+    targetType: 'enterprise', targetId: enterprise._id, targetLabel: enterprise.name,
+    description: `Academy "${enterprise.name}" activated by admin`,
+    severity: 'info'
+  });
+  ApiResponse.success(res, { enterprise }, 'Academy activated');
+});
+
+/**
+ * @desc    Deactivate an enterprise (admin)
+ * @route   POST /api/v1/admin/enterprises/:id/deactivate
+ * @access  Admin
+ */
+const deactivateEnterprise = asyncHandler(async (req, res, next) => {
+  const enterprise = await Enterprise.findById(req.params.id);
+  if (!enterprise) return next(ApiError.notFound('Academy not found'));
+  enterprise.isActive = false;
+  await enterprise.save();
+  await logAction(req, {
+    action: 'enterprise_deactivated', category: 'system',
+    targetType: 'enterprise', targetId: enterprise._id, targetLabel: enterprise.name,
+    description: `Academy "${enterprise.name}" deactivated by admin`,
+    severity: 'warning'
+  });
+  ApiResponse.success(res, { enterprise }, 'Academy deactivated');
+});
+
 module.exports = {
   createEnterprise, listEnterprises, getEnterprise, getMyEnterprise,
   updateEnterprise, addMember, removeMember, updateMemberRole,
-  adminListEnterprises, adminGetEnterprise, verifyEnterprise, suspendEnterprise
+  adminListEnterprises, adminGetEnterprise, verifyEnterprise, suspendEnterprise,
+  activateEnterprise, deactivateEnterprise
 };

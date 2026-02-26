@@ -1,7 +1,8 @@
 const router = require('express').Router();
 const {
   getDashboard, listUsers, getUserDetails, updateUser, deleteUser,
-  listMatches, listRooms, abandonMatch, getSystemStats
+  listMatches, listRooms, abandonMatch, getSystemStats,
+  banUser, unbanUser, activateUser, deactivateUser
 } = require('../controllers/adminController');
 const { authenticate, adminOnly } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
@@ -31,7 +32,12 @@ router.get('/system', getSystemStats);
 router.get('/users', validate(adminValidators.listUsers), listUsers);
 router.get('/users/:id', getUserDetails);
 router.put('/users/:id', validate(adminValidators.updateUser), updateUser);
+router.patch('/users/:id', validate(adminValidators.updateUser), updateUser);
 router.delete('/users/:id', deleteUser);
+router.post('/users/:id/ban', banUser);
+router.post('/users/:id/unban', unbanUser);
+router.post('/users/:id/activate', activateUser);
+router.post('/users/:id/deactivate', deactivateUser);
 
 // ─── Match & Room management ──────────────────────────────────────────────────
 router.get('/matches', validate(adminValidators.listMatches), listMatches);
@@ -45,14 +51,22 @@ router.use('/enterprises', adminEnterpriseRoutes);
 router.use('/ads', adminAdRoutes);
 
 // ─── Subscription management (admin portion) ─────────────────────────────────
-// Note: subscriptionRoutes handles its own auth internally, we layer admin auth on top
-router.get('/subscriptions/analytics', require('../controllers/subscriptionController').getSubscriptionAnalytics);
-router.get('/subscriptions/plans/all', require('../controllers/subscriptionController').adminGetPlans);
-router.post('/subscriptions/plans', require('../controllers/subscriptionController').createPlan);
-router.put('/subscriptions/plans/:id', require('../controllers/subscriptionController').updatePlan);
-router.get('/subscriptions', require('../controllers/subscriptionController').listSubscriptions);
-router.get('/subscriptions/:id', require('../controllers/subscriptionController').getSubscription);
-router.post('/subscriptions/assign', require('../controllers/subscriptionController').adminAssignPlan);
-router.put('/subscriptions/:id/cancel', require('../controllers/subscriptionController').cancelSubscription);
+const subCtrl = require('../controllers/subscriptionController');
+// /subscription-plans aliases (portal-friendly URLs)
+router.get('/subscription-plans', subCtrl.adminGetPlans);
+router.post('/subscription-plans', subCtrl.createPlan);
+router.put('/subscription-plans/:id', subCtrl.updatePlan);
+router.delete('/subscription-plans/:id', subCtrl.deletePlan);
+// /subscriptions/* — static paths first
+router.get('/subscriptions/analytics', subCtrl.getSubscriptionAnalytics);
+router.get('/subscriptions/plans/all', subCtrl.adminGetPlans);
+router.post('/subscriptions/plans', subCtrl.createPlan);
+router.put('/subscriptions/plans/:id', subCtrl.updatePlan);
+router.get('/subscriptions', subCtrl.listSubscriptions);
+router.post('/subscriptions/assign', subCtrl.adminAssignPlan);
+router.get('/subscriptions/user/:userId', subCtrl.getUserSubscriptionByUserId);
+router.get('/subscriptions/:id', subCtrl.getSubscription);
+router.put('/subscriptions/:id/cancel', subCtrl.cancelSubscription);
+router.post('/subscriptions/:id/cancel', subCtrl.cancelSubscription);
 
 module.exports = router;

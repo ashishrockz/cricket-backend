@@ -1,7 +1,8 @@
 const router = require('express').Router();
 const {
   adminListEnterprises, adminGetEnterprise,
-  verifyEnterprise, suspendEnterprise
+  verifyEnterprise, suspendEnterprise,
+  activateEnterprise, deactivateEnterprise
 } = require('../controllers/enterpriseController');
 
 /**
@@ -15,5 +16,7 @@ router.get('/', adminListEnterprises);
 router.get('/:id', adminGetEnterprise);
 router.put('/:id/verify', verifyEnterprise);
 router.put('/:id/suspend', suspendEnterprise);
+router.post('/:id/activate', activateEnterprise);
+router.post('/:id/deactivate', deactivateEnterprise);
 
 module.exports = router;
