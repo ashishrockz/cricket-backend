@@ -61,6 +61,12 @@ const initializeSocket = (server) => {
     if (socket.userData.isAuthenticated) {
       socket.join(`user:${socket.userData.userId}`);
       logger.debug(`Socket ${socket.id} auto-joined user:${socket.userData.userId}`);
+
+      // Admins and super_admins join the admin_room for real-time dashboard events
+      if (socket.userData.role === 'admin' || socket.userData.role === 'super_admin') {
+        socket.join('admin_room');
+        logger.debug(`Socket ${socket.id} joined admin_room`);
+      }
     }
 
     // ============================================
@@ -298,4 +304,49 @@ const getRoomClientsCount = async (roomId) => {
   }
 };
 
-module.exports = { initializeSocket, getIO, broadcastScoreUpdate, getRoomClientsCount };
+/**
+ * Emit an event to all connected admins in the admin_room
+ */
+const emitAdminEvent = (event, data) => {
+  try {
+    if (!io) return;
+    io.to('admin_room').emit(event, { ...data, timestamp: new Date() });
+  } catch (error) {
+    logger.warn(`Admin event broadcast failed: ${error.message}`);
+  }
+};
+
+/**
+ * Start periodic admin stats broadcast (every 30s)
+ * Call this once after DB is connected.
+ */
+const startAdminStatsBroadcast = () => {
+  const Match = require('../models/Match');
+  const Room  = require('../models/Room');
+  const User  = require('../models/User');
+
+  setInterval(async () => {
+    try {
+      if (!io) return;
+      const adminSockets = await io.in('admin_room').allSockets();
+      if (adminSockets.size === 0) return; // No admins connected, skip
+
+      const [liveMatches, activeRooms, totalUsers] = await Promise.all([
+        Match.countDocuments({ status: 'in_progress' }),
+        Room.countDocuments({ status: 'live' }),
+        User.countDocuments({ isActive: true, isBanned: false })
+      ]);
+
+      io.to('admin_room').emit(SOCKET_EVENTS.ADMIN_STATS_UPDATE, {
+        liveMatches,
+        activeRooms,
+        totalUsers,
+        timestamp: new Date()
+      });
+    } catch (err) {
+      logger.warn(`Admin stats broadcast error: ${err.message}`);
+    }
+  }, 30000);
+};
+
+module.exports = { initializeSocket, getIO, broadcastScoreUpdate, getRoomClientsCount, emitAdminEvent, startAdminStatsBroadcast };
