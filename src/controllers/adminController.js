@@ -627,9 +627,60 @@ const deactivateUser = asyncHandler(async (req, res, next) => {
   ApiResponse.success(res, null, 'User deactivated');
 });
 
+/**
+ * @desc    Unlock a user account locked by failed login attempts
+ * @route   POST /api/v1/admin/users/:id/unlock
+ * @access  Admin
+ */
+const unlockUser = asyncHandler(async (req, res, next) => {
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser) return next(ApiError.notFound('User not found'));
+  await User.findByIdAndUpdate(req.params.id, {
+    $set: { loginAttempts: 0, lockUntil: null }
+  });
+  await logAction(req, {
+    action: 'user_unlocked', category: 'user_management',
+    targetType: 'user', targetId: targetUser._id, targetLabel: targetUser.username,
+    description: `Account unlocked for ${targetUser.email}`,
+    severity: 'info'
+  });
+  ApiResponse.success(res, null, 'User account unlocked successfully');
+});
+
+/**
+ * @desc    Change a user's system role
+ * @route   POST /api/v1/admin/users/:id/change-role
+ * @access  Super Admin
+ */
+const changeUserRole = asyncHandler(async (req, res, next) => {
+  const { role } = req.body;
+  const validRoles = ['user', 'admin', 'super_admin'];
+  if (!validRoles.includes(role)) {
+    return next(new ApiError(400, `Invalid role. Must be one of: ${validRoles.join(', ')}`));
+  }
+  if (req.params.id === req.user._id.toString()) {
+    return next(new ApiError(400, 'Cannot change your own role'));
+  }
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser) return next(ApiError.notFound('User not found'));
+  if (targetUser.role === 'super_admin' && req.user.role !== 'super_admin') {
+    return next(new ApiError(403, 'Cannot modify a Super Admin'));
+  }
+  const oldRole = targetUser.role;
+  await User.findByIdAndUpdate(req.params.id, { role });
+  await logAction(req, {
+    action: 'change_user_role', category: 'user_management',
+    targetType: 'user', targetId: targetUser._id, targetLabel: targetUser.username,
+    description: `Role changed from ${oldRole} to ${role} for ${targetUser.email}`,
+    severity: 'critical'
+  });
+  ApiResponse.success(res, { userId: targetUser._id, oldRole, newRole: role }, `Role changed to ${role}`);
+});
+
 module.exports = {
   getDashboard, listUsers, getUserDetails, updateUser, deleteUser,
   listMatches, listRooms, abandonMatch, getSystemStats,
   banUser, unbanUser, activateUser, deactivateUser,
+  unlockUser, changeUserRole,
   bulkUserAction, exportUsers, exportMatches, exportSubscriptions
 };

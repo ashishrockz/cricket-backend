@@ -3,6 +3,7 @@ const {
   getDashboard, listUsers, getUserDetails, updateUser, deleteUser,
   listMatches, listRooms, abandonMatch, getSystemStats,
   banUser, unbanUser, activateUser, deactivateUser,
+  unlockUser, changeUserRole,
   bulkUserAction, exportUsers, exportMatches, exportSubscriptions
 } = require('../controllers/adminController');
 const { authenticate, adminOnly, superAdminOnly } = require('../middlewares/auth');
@@ -359,6 +360,83 @@ router.post('/users/:id/activate', activateUser);
  *         description: User deactivated
  */
 router.post('/users/:id/deactivate', deactivateUser);
+
+/**
+ * @swagger
+ * /api/v1/admin/users/{id}/unlock:
+ *   post:
+ *     summary: Unlock a user account locked by failed login attempts
+ *     description: Clears the loginAttempts counter and lockUntil timestamp. Use when a legitimate user is locked out due to brute-force protection.
+ *     tags: [Admin - Users]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     responses:
+ *       200:
+ *         description: User account unlocked successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+router.post('/users/:id/unlock', unlockUser);
+
+/**
+ * @swagger
+ * /api/v1/admin/users/{id}/change-role:
+ *   post:
+ *     summary: Change a user's system role (Super Admin only)
+ *     description: Promotes or demotes a user role. Cannot change own role or modify another Super Admin's role. Role changes are audit-logged as critical severity.
+ *     tags: [Admin - Users]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PathId'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [role]
+ *             properties:
+ *               role:
+ *                 type: string
+ *                 enum: [user, admin, super_admin]
+ *                 example: admin
+ *                 description: The new role to assign
+ *     responses:
+ *       200:
+ *         description: Role changed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     userId:  { type: string }
+ *                     oldRole: { type: string, enum: [user, admin, super_admin] }
+ *                     newRole: { type: string, enum: [user, admin, super_admin] }
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+router.post('/users/:id/change-role', superAdminOnly, changeUserRole);
 
 // ─── Match & Room management ──────────────────────────────────────────────────
 
